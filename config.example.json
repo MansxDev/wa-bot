@@ -1,0 +1,18 @@
+{
+  "owner": ["628xxxxxxxxxx"],
+  "prefixes": ["!", ".", "#", "/"],
+  "cooldownMs": 1500,
+  "sessionDir": "./session",
+  "botName": "Bot WA",
+  "botFooter": "Ketik !menu untuk daftar perintah",
+  "autoReply": true,
+  "readMessages": true,
+  "autoApprove": false,
+  "rejectCalls": true,
+  "markOnline": true,
+  "greetings": ["halo", "hi", "hai", "hello", "assalamu", "p", "tes", "test", "bot"],
+  "broadcastDelayMs": 300,
+  "maxDownloadMb": 50,
+  "stickerQuality": 90,
+  "logLevel": "silent"
+}
