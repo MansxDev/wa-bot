@@ -4,21 +4,19 @@ const os = require("os");
 const fs = require("fs");
 const path = require("path");
 const {
-  loadJSON,
-  saveJSON,
   normJid,
   sameUser,
   formatRupiah,
   quotedMedia,
   makeImageSticker,
   makeVideoSticker,
-  downloadWithYtDlp,
   buildOrderText,
   relayContent,
   sendNativeButtons,
   sendCarouselCards,
   downloadMedia,
 } = require("./utils");
+const store = require("./store");
 
 async function isGroupAdmin(sock, groupId, participant) {
   try {
@@ -32,17 +30,11 @@ async function isGroupAdmin(sock, groupId, participant) {
 }
 
 function initFeatures({ register, reply, getJid, isOwner, OWNER_NUMBER, config }) {
-  const products = loadJSON("products.json", [
-    { id: "burger", name: "🍔 Burger", price: 25000, desc: "Daging sapi + keju" },
-    { id: "pizza", name: "🍕 Pizza", price: 45000, desc: "Ukuran medium" },
-    { id: "taco", name: "🌮 Taco", price: 20000, desc: "Khas Meksiko" },
-    { id: "esteh", name: "🥤 Es Teh", price: 5000, desc: "Teh manis dingin" },
-    { id: "kopi", name: "☕ Kopi", price: 10000, desc: "Kopi susu gula aren" },
-  ]);
+  const listProducts = () => store.productsAll();
   const carts = new Map();
-  const welcomes = loadJSON("welcome.json", {});
-  const antilinks = loadJSON("antilink.json", {});
-  const channels = loadJSON("channels.json", {});
+  const welcomes = store.kvGet("welcomes", {});
+  const antilinks = store.kvGet("antilinks", {});
+  const channels = store.kvGet("channels", {});
 
   const onMessage = [];
   const onGroupParticipantsUpdate = [];
@@ -55,6 +47,7 @@ function initFeatures({ register, reply, getJid, isOwner, OWNER_NUMBER, config }
   register("catalog", {
     aliases: ["produk", "shop", "store"],
     handler: async ({ sock, jid, msg }) => {
+      const products = listProducts();
       if (!products.length) {
         return reply(sock, jid, "📭 Belum ada produk. Owner bisa tambah via *!jual nama|harga|desk*", msg);
       }
@@ -76,7 +69,7 @@ function initFeatures({ register, reply, getJid, isOwner, OWNER_NUMBER, config }
     aliases: ["buy", "addcart", "tambah"],
     handler: async ({ sock, jid, args, msg }) => {
       const q = args.join(" ").toLowerCase().trim();
-      const product = products.find((p) => p.id === q || p.name.toLowerCase().includes(q));
+      const product = listProducts().find((p) => p.id === q || p.name.toLowerCase().includes(q));
       if (!product) return reply(sock, jid, "❌ Produk tidak ditemukan. Ketik *!catalog*", msg);
       const cart = carts.get(jid) || [];
       const existing = cart.find((it) => it.id === product.id);
@@ -120,8 +113,7 @@ function initFeatures({ register, reply, getJid, isOwner, OWNER_NUMBER, config }
       const price = Number(parts[1].replace(/[^0-9]/g, ""));
       if (!price) return reply(sock, jid, "Harga harus angka. *!jual nama|harga|desk*", msg);
       const id = parts[0].toLowerCase().replace(/\s+/g, "-");
-      products.push({ id, name: parts[0], price, desc: parts[2] });
-      saveJSON("products.json", products);
+      store.productAdd({ id, name: parts[0], price, desc: parts[2] });
       reply(sock, jid, `✅ Produk *${parts[0]}* ditambahkan (${formatRupiah(price)}).`, msg);
     },
   });
@@ -131,10 +123,10 @@ function initFeatures({ register, reply, getJid, isOwner, OWNER_NUMBER, config }
     ownerOnly: true,
     handler: async ({ sock, jid, args, msg }) => {
       const q = args.join(" ").toLowerCase().trim();
-      const idx = products.findIndex((p) => p.id === q || p.name.toLowerCase().includes(q));
+      const idx = listProducts().findIndex((p) => p.id === q || p.name.toLowerCase().includes(q));
       if (idx < 0) return reply(sock, jid, "❌ Produk tidak ditemukan.", msg);
-      const [removed] = products.splice(idx, 1);
-      saveJSON("products.json", products);
+      const [removed] = listProducts().splice(idx, 1);
+      store.productDel(removed.id);
       reply(sock, jid, `🗑️ Produk *${removed.name}* dihapus.`, msg);
     },
   });
@@ -163,73 +155,19 @@ function initFeatures({ register, reply, getJid, isOwner, OWNER_NUMBER, config }
           await sock.sendMessage(jid, { sticker: buf }, { quoted: msg });
         } else {
           const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wabot-stk-"));
-          const input = path.join(tmp, "in" + (content.videoMessage ? ".mp4" : ".mp4"));
-          const output = path.join(tmp, "out.webp");
-          fs.writeFileSync(input, media);
-          const buf = await makeVideoSticker(input, output);
-          await sock.sendMessage(jid, { sticker: buf }, { quoted: msg });
-          fs.rmSync(tmp, { recursive: true, force: true });
+          try {
+            const input = path.join(tmp, "in" + (content.videoMessage ? ".mp4" : ".mp4"));
+            const output = path.join(tmp, "out.webp");
+            fs.writeFileSync(input, media);
+            const buf = await makeVideoSticker(input, output);
+            await sock.sendMessage(jid, { sticker: buf }, { quoted: msg });
+          } finally {
+            fs.rmSync(tmp, { recursive: true, force: true });
+          }
         }
       } catch (e) {
         console.error("Sticker error:", e.message);
         reply(sock, jid, `⚠️ Gagal membuat stiker: ${e.message}`, msg).catch(() => {});
-      }
-    },
-  });
-
-  register("yt", {
-    aliases: ["ytmp4"],
-    handler: async ({ sock, jid, args, msg }) => {
-      const url = args[0];
-      if (!url || !/^https?:\/\//.test(url)) return reply(sock, jid, "Cara pakai: *!yt <link YouTube>*", msg);
-      reply(sock, jid, "⏳ Mengunduh video...", msg).catch(() => {});
-      try {
-        const { filePath, tmpDir } = await downloadWithYtDlp(url, [
-          "-f", "best[height<=720]/best[ext=mp4]/best",
-        ], config?.maxDownloadMb);
-        await sock.sendMessage(jid, { video: { url: filePath }, caption: "🎬 *Video berhasil diunduh*" }, { quoted: msg });
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      } catch (e) {
-        reply(sock, jid, `⚠️ Gagal mengunduh: ${e.message}`, msg).catch(() => {});
-      }
-    },
-  });
-
-  register("yta", {
-    aliases: ["ytmp3"],
-    handler: async ({ sock, jid, args, msg }) => {
-      const url = args[0];
-      if (!url || !/^https?:\/\//.test(url)) return reply(sock, jid, "Cara pakai: *!yta <link YouTube>*", msg);
-      reply(sock, jid, "⏳ Mengunduh audio...", msg).catch(() => {});
-      try {
-        const { filePath, tmpDir } = await downloadWithYtDlp(url, [
-          "-x", "--audio-format", "mp3", "--audio-quality", "0",
-        ], config?.maxDownloadMb);
-        await sock.sendMessage(jid, { audio: { url: filePath }, mimetype: "audio/mpeg", fileName: path.basename(filePath) }, { quoted: msg });
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      } catch (e) {
-        reply(sock, jid, `⚠️ Gagal mengunduh: ${e.message}`, msg).catch(() => {});
-      }
-    },
-  });
-
-  register("dl", {
-    aliases: ["download", "media"],
-    handler: async ({ sock, jid, args, msg }) => {
-      const url = args[0];
-      if (!url || !/^https?:\/\//.test(url)) return reply(sock, jid, "Cara pakai: *!dl <link TikTok/IG/dll>*", msg);
-      reply(sock, jid, "⏳ Mengunduh media...", msg).catch(() => {});
-      try {
-        const { filePath, tmpDir } = await downloadWithYtDlp(url, ["-f", "best[ext=mp4]/best"], config?.maxDownloadMb);
-        const lower = filePath.toLowerCase();
-        if (lower.endsWith(".mp3") || lower.endsWith(".m4a") || lower.endsWith(".ogg")) {
-          await sock.sendMessage(jid, { audio: { url: filePath }, mimetype: "audio/mpeg" }, { quoted: msg });
-        } else {
-          await sock.sendMessage(jid, { video: { url: filePath }, caption: "🎬 *Media berhasil diunduh*" }, { quoted: msg });
-        }
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      } catch (e) {
-        reply(sock, jid, `⚠️ Gagal mengunduh: ${e.message}`, msg).catch(() => {});
       }
     },
   });
@@ -244,7 +182,7 @@ function initFeatures({ register, reply, getJid, isOwner, OWNER_NUMBER, config }
       const w = text.replace(/^!\s*setwelcome\s*/i, "").trim();
       if (!w) return reply(sock, jid, "Cara pakai: *!setwelcome <teks>*\nGunakan *@* untuk tag anggota baru.", msg);
       welcomes[jid] = w;
-      saveJSON("welcome.json", welcomes);
+      store.kvSet("welcomes", welcomes);
       reply(sock, jid, "✅ Pesan sambutan diperbarui.", msg);
     },
   });
@@ -265,7 +203,7 @@ function initFeatures({ register, reply, getJid, isOwner, OWNER_NUMBER, config }
       const mode = (args[0] || "").toLowerCase();
       if (!["on", "off"].includes(mode)) return reply(sock, jid, "Cara pakai: *!antilink on/off*", msg);
       antilinks[jid] = mode === "on";
-      saveJSON("antilink.json", antilinks);
+      store.kvSet("antilinks", antilinks);
       reply(sock, jid, `🔗 Anti-link: ${mode === "on" ? "AKTIF" : "nonaktif"}.`, msg);
     },
   });
@@ -313,15 +251,92 @@ function initFeatures({ register, reply, getJid, isOwner, OWNER_NUMBER, config }
     },
   });
 
+  register("warn", {
+    aliases: ["peringatan"],
+    handler: async ({ sock, jid, isGroup, msg }) => {
+      if (!isGroup) return reply(sock, jid, "Perintah hanya untuk grup.", msg);
+      if (!(await isGroupAdmin(sock, jid, msg.key.participant || jid))) {
+        return reply(sock, jid, "⛔ Khusus admin grup.", msg);
+      }
+      const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+      if (!mentioned.length) return reply(sock, jid, "Tag anggota: *!warn @user*", msg);
+      const threshold = config?.warnThreshold || 3;
+      const lines = [];
+      for (const t of mentioned) {
+        store.warnInc(jid, t);
+        const count = store.warnGet(jid, t);
+        if (count >= threshold) {
+          store.warnDel(jid, t);
+          await sock.groupParticipantsUpdate(jid, [t], "remove");
+          lines.push(`🚫 @${normJid(t)} dikeluarkan (${threshold}x warn)`);
+        } else {
+          lines.push(`⚠️ @${normJid(t)}: warn ${count}/${threshold}`);
+        }
+      }
+      reply(sock, jid, lines.join("\n"), msg);
+    },
+  });
+
+  register("unwarn", {
+    aliases: ["hapuswarn"],
+    handler: async ({ sock, jid, isGroup, msg }) => {
+      if (!isGroup) return reply(sock, jid, "Perintah hanya untuk grup.", msg);
+      if (!(await isGroupAdmin(sock, jid, msg.key.participant || jid))) {
+        return reply(sock, jid, "⛔ Khusus admin grup.", msg);
+      }
+      const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+      if (!mentioned.length) return reply(sock, jid, "Tag anggota: *!unwarn @user*", msg);
+      const lines = mentioned.map((t) => {
+        const ok = store.warnDel(jid, t);
+        return ok ? `✅ Warn @${normJid(t)} direset.` : `ℹ️ @${normJid(t)} tak punya warn.`;
+      });
+      reply(sock, jid, lines.join("\n"), msg);
+    },
+  });
+
+  register("warnstatus", {
+    aliases: ["cekwarn", "warnlist"],
+    handler: async ({ sock, jid, isGroup, msg }) => {
+      if (!isGroup) return reply(sock, jid, "Perintah hanya untuk grup.", msg);
+      if (!(await isGroupAdmin(sock, jid, msg.key.participant || jid))) {
+        return reply(sock, jid, "⛔ Khusus admin grup.", msg);
+      }
+      const rows = store.warnsAll(jid);
+      if (!rows.length) return reply(sock, jid, "📭 Belum ada warn tercatat.", msg);
+      const threshold = config?.warnThreshold || 3;
+      reply(
+        sock,
+        jid,
+        `⚠️ *DAFTAR WARN* (max ${threshold})\n\n` +
+          rows.map((r) => `• @${normJid(r.target)} — ${r.count}/${threshold}`).join("\n"),
+        msg
+      );
+    },
+  });
+
   onMessage.push(async (sock, msg, ctx) => {
     if (!ctx.isGroup || !ctx.text || !antilinks[ctx.jid]) return false;
     if (ctx.isOwner || (await isGroupAdmin(sock, ctx.jid, ctx.participant))) return false;
-    if (/https?:\/\/|(www\.)/i.test(ctx.text)) {
-      await sock.sendMessage(ctx.jid, { delete: { remoteJid: ctx.jid, id: msg.key.id, participant: msg.key.participant } });
-      await sock.sendMessage(ctx.jid, { text: `🔗 *Anti-link:* @${normJid(ctx.participant)} dilarang kirim link di grup ini.`, mentions: [ctx.participant] });
-      return true;
+    if (!/https?:\/\/|(www\.)/i.test(ctx.text)) return false;
+    const threshold = config?.warnThreshold || 3;
+    const warned = store.warnGet(ctx.jid, ctx.participant);
+    if (warned >= threshold - 1) {
+      store.warnDel(ctx.jid, ctx.participant);
+      await sock.groupParticipantsUpdate(ctx.jid, [ctx.participant], "remove");
+      await sock.sendMessage(ctx.jid, {
+        text: `🚫 @${normJid(ctx.participant)} dikeluarkan: ${threshold}x melanggar aturan grup.`,
+        mentions: [ctx.participant],
+      });
+    } else {
+      store.warnInc(ctx.jid, ctx.participant);
+      const n = store.warnGet(ctx.jid, ctx.participant);
+      await sock.sendMessage(ctx.jid, {
+        text: `🔗 *Anti-link:* @${normJid(ctx.participant)} · warning ${n}/${threshold}. 📛 ${threshold - n}x lagi = kick.`,
+        mentions: [ctx.participant],
+      });
     }
-    return false;
+    await sock.sendMessage(ctx.jid, { delete: { remoteJid: ctx.jid, id: msg.key.id, participant: msg.key.participant } });
+    return true;
   });
 
   onGroupParticipantsUpdate.push(async (sock, update) => {
@@ -368,11 +383,10 @@ function initFeatures({ register, reply, getJid, isOwner, OWNER_NUMBER, config }
       if (!ci?.stanzaId) return reply(sock, jid, "Reply pesan yang mau di-pin, lalu ketik *!pin*.", msg);
       const days = parseInt(args[0]) || 7;
       const time = days === 1 ? 86400 : days === 30 ? 2592000 : 604800;
-      const { proto: waProto } = require("@whiskeysockets/baileys");
       const pinKey = { remoteJid: jid, id: ci.stanzaId, participant: ci.participant };
       await sock.sendMessage(jid, {
         pin: pinKey,
-        type: waProto.PinInChat.Type.PIN_FOR_ALL,
+        type: proto.PinInChat.Type.PIN_FOR_ALL,
         time,
       });
       reply(sock, jid, `📌 Pesan di-pin selama ${days} hari.`, msg);
@@ -870,7 +884,7 @@ function initFeatures({ register, reply, getJid, isOwner, OWNER_NUMBER, config }
       try {
         const meta = await sock.newsletterCreate(name, desc || "");
         channels[name.toLowerCase()] = { jid: meta.id, invite: meta.invite || "" };
-        saveJSON("channels.json", channels);
+        store.kvSet("channels", channels);
         reply(
           sock,
           jid,
@@ -1180,6 +1194,7 @@ function initFeatures({ register, reply, getJid, isOwner, OWNER_NUMBER, config }
   register("catalogcar", {
     aliases: ["carcatalog", "katalogcar"],
     handler: async ({ sock, jid, msg }) => {
+      const products = listProducts();
       if (!products.length) return reply(sock, jid, "📭 Belum ada produk.", msg);
       const cards = products.slice(0, 10).map((p) => ({
         title: p.name,
@@ -1196,7 +1211,7 @@ function initFeatures({ register, reply, getJid, isOwner, OWNER_NUMBER, config }
     },
   });
 
-  return { onMessage, onGroupParticipantsUpdate, onGroupJoinRequest, products, carts };
+  return { onMessage, onGroupParticipantsUpdate, onGroupJoinRequest, carts };
 }
 
 module.exports = { initFeatures };

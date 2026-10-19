@@ -4,10 +4,11 @@
   "description": "WhatsApp bot dengan button interaktif menggunakan Baileys",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node --watch index.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc.2",
+    "better-sqlite3": "^13.0.3",
     "pino": "^9.6.0",
     "qrcode-terminal": "^0.12.0",
     "sharp": "^0.35.3"

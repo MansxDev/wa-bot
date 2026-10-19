@@ -1,6 +1,13 @@
 {
-  "owner": ["628xxxxxxxxxx"],
-  "prefixes": ["!", ".", "#", "/"],
+  "owner": [
+    "628xxxxxxxxxx"
+  ],
+  "prefixes": [
+    "!",
+    ".",
+    "#",
+    "/"
+  ],
   "cooldownMs": 1500,
   "sessionDir": "./session",
   "botName": "Bot WA",
@@ -10,9 +17,22 @@
   "autoApprove": false,
   "rejectCalls": true,
   "markOnline": true,
-  "greetings": ["halo", "hi", "hai", "hello", "assalamu", "p", "tes", "test", "bot"],
+  "greetings": [
+    "halo",
+    "hi",
+    "hai",
+    "hello",
+    "assalamu",
+    "p",
+    "tes",
+    "test",
+    "bot"
+  ],
   "broadcastDelayMs": 300,
-  "maxDownloadMb": 50,
   "stickerQuality": 90,
-  "logLevel": "silent"
+  "warnThreshold": 3,
+  "logLevel": "silent",
+  "apiPort": 4000,
+  "apiHost": "0.0.0.0",
+  "token": "ganti-dengan-token-acak"
 }

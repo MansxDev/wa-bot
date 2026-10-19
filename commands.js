@@ -42,6 +42,7 @@ module.exports = function registerGeneralCommands({ register, reply, getJid, sen
         "• !approvemode on/off, !joinreqs\n" +
         "• !approvejoin / !rejectjoin @user\n" +
         "• !setwelcome, !antilink on/off\n" +
+        "• !warn / !unwarn / !warnstatus — sistem warn\n" +
         "• !kick, !add, !admins\n\n" +
         "*Store*\n" +
         "• !catalog / !catalogcar — teks / carousel\n" +
@@ -51,8 +52,6 @@ module.exports = function registerGeneralCommands({ register, reply, getJid, sen
         "• !postchannel nama <pesan> (owner)\n" +
         "• !mychannels, !infochannel\n" +
         "• !followchannel / !unfollowchannel (owner)\n\n" +
-        "*Downloader*\n" +
-        "• !yt, !yta, !dl\n\n" +
         "*Owner*\n" +
         "• !autoreply on/off, !read on/off\n" +
         "• !autoapprove on/off\n" +
@@ -125,13 +124,13 @@ module.exports = function registerGeneralCommands({ register, reply, getJid, sen
     },
   });
 
-  register("autoReply", {
+  register("autoreply", {
     ownerOnly: true,
     handler: async ({ sock, jid, args, msg }) => {
       const val = args[0];
       if (val === "on") state.runtime.autoReply = true;
       else if (val === "off") state.runtime.autoReply = false;
-      else return reply(sock, jid, `Gunakan *${prefix}autoReply on/off*`, msg);
+      else return reply(sock, jid, `Gunakan *${prefix}autoreply on/off*`, msg);
       reply(sock, jid, `AutoReply: ${state.runtime.autoReply ? "ON ✅" : "OFF ❌"}`, msg);
     },
   });

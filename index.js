@@ -12,21 +12,34 @@ const { loadConfig } = require("./config");
 const U = require("./utils");
 const registerGeneralCommands = require("./commands");
 const { initFeatures } = require("./features");
+const { createApi } = require("./server");
 
 const config = loadConfig(__dirname);
 const logger = pino({ level: config.logLevel });
 
+// HTTP API untuk app Android (com.botmansx.bot) — REST + SSE, port dari config.apiPort
+const api = createApi({ getState: () => state, config, rootDir: __dirname });
+api.start();
+
+process.on("uncaughtException", (e) => console.error("🔥 Uncaught exception:", e?.message || e));
+process.on("unhandledRejection", (e) => console.error("🔥 Unhandled rejection:", e?.message || e));
+
 const state = {
   sock: null,
   startTime: null,
+  connection: "idle",
   antiSpam: new Map(),
   chats: new Set(),
   runtime: {
     autoReply: config.autoReply,
     readMessages: config.readMessages,
     autoApprove: config.autoApprove,
+    stickerQuality: config.stickerQuality,
+    warnThreshold: config.warnThreshold,
   },
 };
+
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const reply = U.createReply(config);
 const checkOwner = (jid, key) => U.isOwner(jid, key, config.owner);
@@ -45,7 +58,8 @@ async function runCommand(sock, msg, jid, participant, command, args, text) {
 
   const now = Date.now();
   const last = state.antiSpam.get(participant) || 0;
-  if (now - last < config.cooldownMs) return true;
+  const cooldownMs = def.cooldown > 0 ? def.cooldown : config.cooldownMs;
+  if (now - last < cooldownMs) return true;
   state.antiSpam.set(participant, now);
 
   if (def.ownerOnly && !checkOwner(jid, msg.key)) {
@@ -53,9 +67,14 @@ async function runCommand(sock, msg, jid, participant, command, args, text) {
     return true;
   }
 
+  const stripped = text.replace(
+    new RegExp(`^\\s*(?:${config.prefixes.map(escapeRegex).join("|")})\\s*${escapeRegex(command)}\\s*`, "i"),
+    ""
+  );
+
   try {
     await sock.sendPresenceUpdate("composing", jid).catch(() => {});
-    await def.handler({ sock, jid, msg, args, isGroup: jid.endsWith("@g.us"), participant, text });
+    await def.handler({ sock, jid, msg, args, isGroup: jid.endsWith("@g.us"), participant, text: stripped });
   } catch (e) {
     console.error("Handler error:", e);
     reply(sock, jid, "⚠️ Terjadi error saat memproses perintah.", msg).catch(() => {});
@@ -150,6 +169,8 @@ async function startBot() {
   });
   state.sock = sock;
   state.startTime = Date.now();
+  state.connection = "connecting";
+  api.attachSock(sock);
 
   sock.ev.on("creds.update", saveCreds);
 
@@ -157,6 +178,8 @@ async function startBot() {
     if (connection === "close") {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      state.connection = "closed";
+      api.emit("status", api.status());
       console.log(`Connection closed (${statusCode}). ${shouldReconnect ? "Reconnecting..." : "Logged out"}`);
       if (shouldReconnect) {
         const delay = statusCode === DisconnectReason.connectionReplaced ? 15000 : 3000;
@@ -165,7 +188,12 @@ async function startBot() {
       }
     } else if (connection === "open") {
       const id = sock.user?.id || auth.creds.me?.id || "unknown";
+      state.connection = "open";
       console.log(`✅ Bot connected as ${id}`);
+      api.emit("status", api.status());
+    } else if (connection) {
+      state.connection = connection;
+      api.emit("status", api.status());
     }
   });
 

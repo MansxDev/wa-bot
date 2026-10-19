@@ -135,25 +135,6 @@ async function makeVideoSticker(inputFile, outputFile) {
   return fs.readFileSync(outputFile);
 }
 
-async function downloadWithYtDlp(url, extraArgs, maxMb) {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wabot-dl-"));
-  const out = path.join(tmpDir, "out.%(ext)s");
-  const isYT = /(youtu\.?be|youtube)/i.test(url);
-  const args = [
-    "--no-playlist", "--no-warnings", "-4",
-    "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-    ...(isYT ? ["--extractor-args", "youtube:player_client=android"] : []),
-    "-o", out, "--print", "after_move:filepath", ...extraArgs, url,
-  ];
-  const { stdout } = await run("yt-dlp", args);
-  const filePath = stdout.split("\n")[0].trim();
-  if (!filePath || !fs.existsSync(filePath)) throw new Error("File tidak ditemukan");
-  const sizeMb = fs.statSync(filePath).size / 1024 / 1024;
-  const limit = maxMb || 50;
-  if (sizeMb > limit) throw new Error(`File terlalu besar (> ${limit}MB)`);
-  return { filePath, tmpDir, sizeMb };
-}
-
 function buildOrderText(cart, total) {
   const rows = cart
     .map((it, i) => `${i + 1}. ${it.name} x${it.qty} — ${formatRupiah(it.price * it.qty)}`)
@@ -251,7 +232,6 @@ module.exports = {
   parseCommand,
   makeImageSticker,
   makeVideoSticker,
-  downloadWithYtDlp,
   buildOrderText,
   createReply,
   relayContent,
