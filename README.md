@@ -11,9 +11,9 @@ WhatsApp bot berbasis [Baileys](https://github.com/WhiskeySockets/Baileys) — m
 | Stiker | `!sticker` (gambar & video, ffmpeg) |
 | Media | `!viewonce` `!ptv` `!lokasi` `!kontak` `!forward` `!bintang` `!event` |
 | Grup | `!tagall` `!promote` `!antilink` `!setwelcome` `!lockchat` `!approvemode` dll |
+| Anti-spam | `!warn` `!unwarn` `!warnstatus` — antilink auto-warn → kick (threshold `warnThreshold`) |
 | Store | `!catalog` `!catalogcar` (carousel) `!beli` `!keranjang` `!checkout` |
 | Channel | `!buatchannel` `!postchannel` `!followchannel` `!infochannel` |
-| Downloader | `!yt` `!yta` `!dl` (via yt-dlp) |
 | Owner | `!broadcast` `!status` `!privacy` `!updatebio` `!buatgrup` `!jual` dll |
 
 Ketik `!menu` di chat untuk daftar lengkap.
@@ -22,7 +22,7 @@ Ketik `!menu` di chat untuk daftar lengkap.
 
 - Node.js 18+
 - [ffmpeg](https://ffmpeg.org) — untuk stiker video
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — untuk downloader
+- `better-sqlite3` (native) — data store (produk, welcome, antilink, channel, warn); butuh build tools Linux/macOS/Win saat npm install
 
 ## Instalasi
 
@@ -47,7 +47,7 @@ Edit `config.json`:
 
 ```jsonc
 {
-  "owner": ["6281546453913"],      // nomor owner (bisa lebih dari satu)
+  "owner": ["6281546543913"],      // nomor owner (bisa lebih dari satu)
   "prefixes": ["!", ".", "#", "/"],// prefix command
   "cooldownMs": 1500,              // anti-spam
   "botName": "Bot WA",             // nama di fake-quoted reply
@@ -55,7 +55,6 @@ Edit `config.json`:
   "readMessages": true,
   "autoApprove": false,            // auto approve join request grup
   "rejectCalls": true,
-  "maxDownloadMb": 50,
   "stickerQuality": 90
 }
 ```

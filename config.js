@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 const DEFAULT_CONFIG = {
-  owner: [process.env.OWNER_NUMBER || "6281546453913"],
+  owner: [process.env.OWNER_NUMBER || "6281546543913"],
   prefixes: ["!", ".", "#", "/"],
   cooldownMs: 1500,
   sessionDir: "./session",
@@ -15,8 +15,8 @@ const DEFAULT_CONFIG = {
   markOnline: true,
   greetings: ["halo", "hi", "hai", "hello", "assalamu", "p", "tes", "test", "bot"],
   broadcastDelayMs: 300,
-  maxDownloadMb: 50,
   stickerQuality: 90,
+  warnThreshold: 3,
   logLevel: process.env.LOG_LEVEL || "silent",
 };
 
